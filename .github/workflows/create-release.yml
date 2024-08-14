@@ -1,0 +1,85 @@
+name: Create a release
+
+env:
+  RELEASE_DIR: .RELEASE
+  PUBLISH_DIR: bin\.PUBLISH
+  RESOURCES_DIR: resources
+  DOTNET_VERSION: 7.x
+  HASH_ALGORITHM: SHA-256
+
+on:
+  push:
+    tags: 'v[0-9]+.[0-9]+.[0-9]+**'
+  workflow_dispatch:
+    inputs:
+      isDraft:
+        type: boolean
+        default: true
+        description: 'Create a draft'
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set environment variables
+      run: |
+        $name = Split-Path -Path (Get-Location) -Leaf
+        $version = '${{ github.ref_name }}' -replace '^v(?=\d+\.\d+\.\d+)', ''
+        $releaseFilename = $name + ".zip"
+        "NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "RELEASE_FILENAME=$releaseFilename" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Setup DotNet ${{ env.DOTNET_VERSION }} environment
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Publish
+      run: |
+        dotnet publish ${{ env.NAME }}\${{ env.NAME }}.csproj -c Release --self-contained false `
+          --output ${{ env.NAME }}\${{ env.PUBLISH_DIR }}
+
+    - name: Create ZIP archive
+      run: |
+        ./create-archive.ps1 `
+          ${{ env.NAME }} `
+          ${{ env.RELEASE_DIR }} `
+          ${{ env.NAME }}\${{ env.PUBLISH_DIR }} `
+          ${{ env.RELEASE_FILENAME }} `
+          ${{ env.VERSION }}
+
+    - name: Hash file
+      run: |
+        $hash = (Get-FileHash -Algorithm ('${{ env.HASH_ALGORITHM }}' -replace '-','') `
+          -Path ${{ env.RELEASE_DIR }}\${{ env.RELEASE_FILENAME }}).Hash
+        "HASH=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: GH Release
+      uses: softprops/action-gh-release@v2.0.4
+      with:
+        files: |
+          ${{ env.RELEASE_DIR }}/${{ env.RELEASE_FILENAME }}
+        draft: ${{ inputs.isDraft == true && true || false }}
+        append_body: true
+        body: |
+          ```
+          VERSION: ${{ env.VERSION }}
+          SHA-256: ${{ env.HASH }}
+          ```
