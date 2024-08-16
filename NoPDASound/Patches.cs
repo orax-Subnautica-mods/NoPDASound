@@ -6,7 +6,6 @@ using System.Reflection.Emit;
 namespace NoPDASound;
 
 [HarmonyPatch]
-[HarmonyDebug]
 public static class Patches
 {
     [HarmonyPatch(typeof(uGUI_PDA), nameof(uGUI_PDA.OnOpenPDA))]
